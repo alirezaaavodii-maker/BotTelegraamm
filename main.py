@@ -14,7 +14,28 @@ log = logging.getLogger("MAIN")
 
 async def main():
     tg = TG()
-    await tg.start()
+    
+    # تلاش برای اتصال با retry
+    max_retries = 3
+    for attempt in range(max_retries):
+        try:
+            await tg.start()
+            break
+        except RuntimeError as e:
+            if "SESSION_INVALID" in str(e):
+                log.error("❌ Session باطل است. برنامه متوقف می‌شود.")
+                log.error("❌ یک Session جدید بساز و در Railway Variables بذار")
+                log.error("❌ سپس Railway را Redeploy کن")
+                return
+            elif "2FA_REQUIRED" in str(e):
+                log.error("❌ اکانت شما Two-Factor Authentication دارد")
+                return
+            else:
+                log.warning("⚠️ تلاش %d/%d برای اتصال...", attempt + 1, max_retries)
+                if attempt == max_retries - 1:
+                    raise
+                await asyncio.sleep(5)
+    
     await tg.ensure_joined()
 
     total = 0
