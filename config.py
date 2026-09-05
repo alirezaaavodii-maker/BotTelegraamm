@@ -32,3 +32,4 @@ TRUNK_M = f("TRUNK_M", 0.07); SPAN = f("SPAN", 0.42)
 
 DEBUG = s("DEBUG","1")=="1"
 SHOT_UPLOAD = s("SHOT_UPLOAD","0")=="1"   # آپلود اختیاری اسکرین‌شات برای دیباگ ریموت
+DEBUG_SCAN = s("DEBUG_SCAN", "0") == "1"
