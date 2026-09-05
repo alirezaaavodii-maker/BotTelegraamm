@@ -2,6 +2,7 @@ import asyncio
 import os
 
 from telethon import TelegramClient, functions, types
+from telethon.sessions import StringSession
 from playwright.async_api import async_playwright
 
 
@@ -29,8 +30,8 @@ async def get_mini_app_url(client):
                 if button.text.lower() == "play lumberjack!":
                     result = await client(
                         functions.messages.RequestWebViewRequest(
-                            peer=CHAT_ID,
-                            bot=message.peer_id,
+                            peer=message.peer_id,
+                            bot=message.from_id,
                             platform="android",
                             url=button.url,
                             from_bot_menu=False,
@@ -48,7 +49,7 @@ async def main():
     print("Connecting to Telegram...")
 
     client = TelegramClient(
-        SESSION,
+        StringSession(SESSION),
         API_ID,
         API_HASH,
     )
@@ -308,3 +309,4 @@ async def read_score(page):
 
 if __name__ == "__main__":
     asyncio.run(main())
+
