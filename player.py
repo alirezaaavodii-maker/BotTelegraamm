@@ -48,7 +48,7 @@ async def _send_shot(client, a, score):
         img = Image.fromarray(a)
         buf = io.BytesIO()
         img.save(buf, format='JPEG', quality=70)
-        buf.seek(0)  # مهم: برگردوندن pointer به اول
+        buf.seek(0)
         buf.name = f"lj_{score}.jpg"
         await client.send_file("me", buf, caption=f"LumberJack @ {score}")
         log.info("📸 shot sent for score=%s", score)
@@ -61,7 +61,7 @@ async def play_run(browser, url, client=None):
 
     def on_request(req):
         if "tbot.xyz" in req.url or "api" in req.url.lower():
-            log.info("🌐 REQUEST %s %s", req.method, req.url)
+            log.info(" REQUEST %s %s", req.method, req.url)
 
     def on_response(resp):
         if "tbot.xyz" in resp.url or "api" in resp.url.lower():
@@ -72,8 +72,8 @@ async def play_run(browser, url, client=None):
 
     def on_console(msg):
         text = msg.text
-        if any(k in text.lower() for k in ["error", "fail", "send", "mock", "websocket", "ws", "game over", "restart"]):
-            log.info(" CONSOLE [%s]: %s", msg.type, text[:300])
+        if any(k in text.lower() for k in ["error", "fail", "send", "mock", "game over", "restart"]):
+            log.info("📜 CONSOLE [%s]: %s", msg.type, text[:300])
 
     page.on("console", on_console)
 
@@ -81,9 +81,10 @@ async def play_run(browser, url, client=None):
     total, side, miss = 0, "L", 0
     consecutive_resets = 0
     last_score_check = 0
+    game_started = False
 
     try:
-        log.info("🌍 loading game url...")
+        log.info(" loading game url...")
         await page.goto(url, wait_until="load", timeout=60000)
         await page.wait_for_timeout(4000)
         log.info("✅ mini app loaded")
@@ -98,29 +99,37 @@ async def play_run(browser, url, client=None):
             is_play = play_screen(a, C)
             if is_play:
                 consecutive_resets += 1
-                log.info("▶️  play screen detected (consecutive=%s), clicking start...", consecutive_resets)
-                await page.mouse.click(C.VIEW_W * C.PLAY_X, C.VIEW_H * C.PLAY_Y)
-                miss = 0
-                await page.wait_for_timeout(random.uniform(1.5, 2.5))  # صبر بیشتر بعد از شروع
+                if consecutive_resets > 5:
+                    log.warning("⚠️ too many consecutive resets (%s), may be detected as bot", consecutive_resets)
+                    await asyncio.sleep(random.uniform(3.0, 5.0))
+                else:
+                    log.info("▶️  play screen detected (consecutive=%s), clicking start...", consecutive_resets)
+                    await page.mouse.click(C.VIEW_W * C.PLAY_X, C.VIEW_H * C.PLAY_Y)
+                    await asyncio.sleep(random.uniform(2.0, 3.5))
+                    game_started = True
                 continue
             else:
-                consecutive_resets = 0  # ریست کردن شمارنده وقتی بازی در حال اجراست
+                consecutive_resets = 0
+                if not game_started:
+                    log.info("🎮 game in progress, waiting for first click...")
+                    game_started = True
 
             st = analyze(a, C)
             if not st["ok"]:
                 miss += 1
-                if miss > 20:
-                    log.warning("❌ too many misses, stopping run")
+                log.warning("⚠️ analyze failed (miss=%s): dL=%s dR=%s", miss, st.get("dL", "?"), st.get("dR", "?"))
+                if miss > 15:
+                    log.error("❌ too many misses (%s), stopping run", miss)
                     break
-                await page.wait_for_timeout(300)
+                await page.wait_for_timeout(400)
                 continue
 
             miss = 0
             side = decide(st, side)
             x = C.LEFT_X if side == "L" else C.RIGHT_X
             
-            # کلیک با jitter بیشتر برای شبیه‌سازی انسان
-            jitter_x = random.uniform(-0.02, 0.02)
+            # کلیک با jitter بیشتر
+            jitter_x = random.uniform(-0.03, 0.03)
             jitter_y = random.uniform(-0.02, 0.02)
             await page.mouse.click(
                 C.VIEW_W * (x + jitter_x), 
@@ -128,17 +137,16 @@ async def play_run(browser, url, client=None):
             )
             total += 1
 
-            # لاگ هر ۲۰ کلیک
+            # لاگ هر 20 کلیک
             if total % 20 == 0:
-                log.info("score=%s side=%s dL=%s dR=%s resets=%s", 
-                         total, side, st["dL"], st["dR"], consecutive_resets)
+                log.info("score=%s side=%s dL=%s dR=%s resets=%s ok=%s", 
+                         total, side, st["dL"], st["dR"], consecutive_resets, st["ok"])
                 
-                # ارسال عکس هر ۱۰ کلیک
                 if total % 100 == 0:
                     await _send_shot(client, a, total)
 
-            # delay متغیر بین کلیک‌ها (۰.۱۵ تا ۰.۳ ثانیه)
-            delay = random.uniform(0.15, 0.35)
+            # delay متغیر (کندتر)
+            delay = random.uniform(0.25, 0.45)
             await asyncio.sleep(delay)
 
     except Exception as e:
