@@ -2,6 +2,7 @@ import asyncio
 import os
 
 from telethon import TelegramClient, functions, types
+from telethon.sessions import StringSession
 from playwright.async_api import async_playwright
 
 
@@ -48,7 +49,7 @@ async def main():
     print("Connecting to Telegram...")
 
     client = TelegramClient(
-        SESSION,
+        StringSession(SESSION),
         API_ID,
         API_HASH,
     )
@@ -308,3 +309,4 @@ async def read_score(page):
 
 if __name__ == "__main__":
     asyncio.run(main())
+
