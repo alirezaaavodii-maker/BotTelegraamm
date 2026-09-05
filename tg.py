@@ -6,17 +6,31 @@ from telethon.tl.types import (KeyboardButtonWebView, KeyboardButtonSimpleWebVie
 from telethon.tl.functions.messages import (RequestWebViewRequest,
     RequestSimpleWebViewRequest, ImportChatInviteRequest, GetFullChatRequest)
 from telethon.tl.functions.channels import GetFullChannelRequest
+from telethon.errors import AuthKeyDuplicatedError, SessionPasswordNeededError
 import config as C
+
 log = logging.getLogger("TG")
+
 
 class TG:
     def __init__(self):
         self.client = TelegramClient(StringSession(C.SESSION_STRING), C.API_ID, C.API_HASH)
 
     async def start(self):
-        await self.client.start()
-        me = await self.client.get_me()
-        log.info("✅ connected as %s (id=%s)", me.username or me.first_name, me.id)
+        try:
+            await self.client.start()
+            me = await self.client.get_me()
+            log.info("✅ connected as %s (id=%s)", me.username or me.first_name, me.id)
+        except AuthKeyDuplicatedError:
+            log.error("❌ SESSION STRING باطل شده! یک Session جدید بساز و در Railway بذار")
+            log.error(" راهنما: فایل generate_session.py را لوکال اجرا کن")
+            raise RuntimeError("SESSION_INVALID")
+        except SessionPasswordNeededError:
+            log.error("❌ اکانت شما Two-Factor Authentication دارد. باید password بدهید")
+            raise RuntimeError("2FA_REQUIRED")
+        except Exception as e:
+            log.error("❌ خطا در اتصال: %s", e)
+            raise
 
     async def ensure_joined(self):
         try:
@@ -29,7 +43,6 @@ class TG:
                 log.warning("join: %s", e)
 
     def _find_game_button(self, msg):
-        """اولین دکمه‌ی قابل استفاده (WebView/SimpleWebView/Game) را برمی‌گرداند"""
         mk = msg.reply_markup
         if not mk:
             return None
@@ -59,10 +72,8 @@ class TG:
         return None
 
     async def find_game_message(self):
-        # ۱) پیام پین‌شده
         msg = await self._pinned_message()
         if msg:
-            # لاگ تشخیصی: نوع همه‌ی دکمه‌های پیام پین
             if msg.reply_markup:
                 log.info("pinned buttons: %s",
                          [f"{type(b).__name__}:{(b.text or '')[:30]}"
@@ -72,7 +83,7 @@ class TG:
                 log.info("✅ game button in PINNED msg: type=%s text=%r",
                          type(found[2]).__name__, found[2].text)
                 return msg, found
-        # ۲) آیدی مستقیم
+
         if C.GAME_MSG_ID:
             msg = await self.client.get_messages(C.GAME_CHAT, ids=C.GAME_MSG_ID)
             if msg:
@@ -80,11 +91,12 @@ class TG:
                 if found:
                     log.info("✅ game button via GAME_MSG_ID: type=%s", type(found[2]).__name__)
                     return msg, found
-        # ۳) اسکن محدود
+
         async for msg in self.client.iter_messages(C.GAME_CHAT, limit=200):
             found = self._find_game_button(msg)
             if found:
                 return msg, found
+
         raise RuntimeError("game button not found (pinned/ID/scan all failed)")
 
     async def get_webview_url(self, msg, info):
@@ -103,7 +115,6 @@ class TG:
             log.info("✅ simple webview url obtained")
             return r.url
 
-        # ★ دکمه‌ی بازی (Game): کلیک می‌کنیم تا URL واقعی بازی برگردد
         flat = sum(len(row.buttons) for row in msg.reply_markup.rows[:ri]) + ci
         r = await msg.click(flat)
         url = getattr(r, "url", None)
