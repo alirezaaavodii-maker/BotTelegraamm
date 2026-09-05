@@ -1,7 +1,8 @@
 import logging
 from telethon import TelegramClient
 from telethon.sessions import StringSession
-from telethon.tl.types import KeyboardButtonWebView, KeyboardButtonSimpleWebView
+from telethon.tl.types import (KeyboardButtonWebView, KeyboardButtonSimpleWebView,
+                               KeyboardButtonGame)
 from telethon.tl.functions.messages import (RequestWebViewRequest,
     RequestSimpleWebViewRequest, ImportChatInviteRequest, GetFullChatRequest)
 from telethon.tl.functions.channels import GetFullChannelRequest
@@ -27,19 +28,20 @@ class TG:
             except Exception as e:
                 log.warning("join: %s", e)
 
-    @staticmethod
-    def _web_buttons(msg):
-        out = []
+    def _find_game_button(self, msg):
+        """اولین دکمه‌ی قابل استفاده (WebView/SimpleWebView/Game) را برمی‌گرداند"""
         mk = msg.reply_markup
-        if not mk: return out
-        for row in mk.rows:
-            for b in row.buttons:
-                if isinstance(b, (KeyboardButtonWebView, KeyboardButtonSimpleWebView)):
-                    out.append(b)
-        return out
+        if not mk:
+            return None
+        for ri, row in enumerate(mk.rows):
+            for ci, b in enumerate(row.buttons):
+                if isinstance(b, (KeyboardButtonWebView,
+                                  KeyboardButtonSimpleWebView,
+                                  KeyboardButtonGame)):
+                    return ri, ci, b
+        return None
 
     async def _pinned_message(self):
-        """پیام پین‌شده‌ی گروه را مستقیم می‌گیرد (همون پیام بازی!)"""
         try:
             peer = await self.client.get_input_entity(C.GAME_CHAT)
             pid = None
@@ -57,33 +59,56 @@ class TG:
         return None
 
     async def find_game_message(self):
-        # ۱) پیام پین‌شده (مطمئن‌ترین راه)
+        # ۱) پیام پین‌شده
         msg = await self._pinned_message()
         if msg:
-            for b in self._web_buttons(msg):
-                log.info("✅ game button found in PINNED msg (id=%s, btn=%r)", msg.id, b.text)
-                return msg, b
-        # ۲) آیدی مستقیم پیام (زاپاس)
+            # لاگ تشخیصی: نوع همه‌ی دکمه‌های پیام پین
+            if msg.reply_markup:
+                log.info("pinned buttons: %s",
+                         [f"{type(b).__name__}:{(b.text or '')[:30]}"
+                          for row in msg.reply_markup.rows for b in row.buttons])
+            found = self._find_game_button(msg)
+            if found:
+                log.info("✅ game button in PINNED msg: type=%s text=%r",
+                         type(found[2]).__name__, found[2].text)
+                return msg, found
+        # ۲) آیدی مستقیم
         if C.GAME_MSG_ID:
             msg = await self.client.get_messages(C.GAME_CHAT, ids=C.GAME_MSG_ID)
             if msg:
-                for b in self._web_buttons(msg):
-                    log.info("✅ game button found via GAME_MSG_ID (id=%s, btn=%r)", msg.id, b.text)
-                    return msg, b
-        # ۳) اسکن محدود (زاپاس آخر)
+                found = self._find_game_button(msg)
+                if found:
+                    log.info("✅ game button via GAME_MSG_ID: type=%s", type(found[2]).__name__)
+                    return msg, found
+        # ۳) اسکن محدود
         async for msg in self.client.iter_messages(C.GAME_CHAT, limit=200):
-            for b in self._web_buttons(msg):
-                if C.BUTTON_TEXT.lower() in (b.text or "").lower():
-                    return msg, b
+            found = self._find_game_button(msg)
+            if found:
+                return msg, found
         raise RuntimeError("game button not found (pinned/ID/scan all failed)")
 
-    async def get_webview_url(self, msg, b):
+    async def get_webview_url(self, msg, info):
+        ri, ci, b = info
         peer = await self.client.get_input_entity(C.GAME_CHAT)
+
         if isinstance(b, KeyboardButtonWebView):
             r = await self.client(RequestWebViewRequest(
                 peer=peer, msg_id=msg.id, button=b, platform="android"))
-        else:
+            log.info("✅ webview url obtained")
+            return r.url
+
+        if isinstance(b, KeyboardButtonSimpleWebView):
             r = await self.client(RequestSimpleWebViewRequest(
                 peer=peer, button=b, platform="android"))
-        log.info("✅ webview url obtained")
-        return r.url
+            log.info("✅ simple webview url obtained")
+            return r.url
+
+        # ★ دکمه‌ی بازی (Game): کلیک می‌کنیم تا URL واقعی بازی برگردد
+        flat = sum(len(row.buttons) for row in msg.reply_markup.rows[:ri]) + ci
+        r = await msg.click(flat)
+        url = getattr(r, "url", None)
+        if not url:
+            log.error("❌ game click returned no url: %s", r)
+            raise RuntimeError("game button clicked but no url returned")
+        log.info("✅ GAME url obtained: %.80s...", url)
+        return url
