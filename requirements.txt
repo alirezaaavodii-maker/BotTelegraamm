@@ -1,5 +1,5 @@
 telethon
-playwright
+playwright==1.55.0
 numpy
 pillow
 python-dotenv
