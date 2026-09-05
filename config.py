@@ -33,3 +33,5 @@ TRUNK_M = f("TRUNK_M", 0.07); SPAN = f("SPAN", 0.42)
 DEBUG = s("DEBUG","1")=="1"
 SHOT_UPLOAD = s("SHOT_UPLOAD","0")=="1"   # آپلود اختیاری اسکرین‌شات برای دیباگ ریموت
 DEBUG_SCAN = s("DEBUG_SCAN", "0") == "1"
+GAME_MSG_ID = i("GAME_MSG_ID", 149595)   # آیدی پیام بازی از لینکی که فرستادی
+ERROR_PAUSE = f("ERROR_PAUSE", 20)       # مکث بعد از خطا (جلوگیری از اسپم لاگ)
